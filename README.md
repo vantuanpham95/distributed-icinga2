@@ -86,6 +86,8 @@ File cấu hình: /etc/icinga2/features-enabled/api.conf. Các thuộc tính acc
 
 Kích hoạt: icinga2 feature enable api 
 
+Các file sync bằng đối tượng api: /var/lib/icinga2/api/zones/... 
+
 ## 5. Security 
 
 icinga2 có cung cấp các cơ chế bảo mật bổ sung với các rules sau 
@@ -99,6 +101,8 @@ Các vùng con không được cập nhật cấu hình cho vùng cha
 Các vùng cũng riêng rẽ với nhau và không thể can thiệp vào các vùng khác. Một host hay 1 service chỉ được gán cho một vùng, chỉ có 1 FQDN 
 
 Tất cả các node trong 1 vùng trust nhau 
+
+Các file ca, crt được lưu ở /etc/icinga2/cert/ 
 
 ## 6. Cấu hình Master 
 
@@ -194,7 +198,7 @@ Nhận ticket này trên client bằng cách sử dụng curl
 [root@icinga2-master1.localdomain /]# curl -k -s -u client-pki-ticket:bea11beb7b810ea9ce6ea -H 'Accept: application/json' \ 
 -X POST 'https://icinga2-master1.localdomain:5665/v1/actions/generate-ticket' -d '{ "cn": "icinga2-client1.localdomain" }' 
 ```
-(Nên save mã này lại để sau còn dùng) 
+(Câu lệnh này chưa thực hiện được - chưa hiểu lắm) 
 
 **Client/ Satellite Linux Setup** 
 
@@ -216,6 +220,63 @@ Liệt kê các node được monitor
 ```
 root@icinga2-master:~# icinga2 node list 
 ```
+
+(Các câu lệnh này kể từ bản 2.8 đã không còn dùng được) 
+
+Ví dụ 
+```
+root@icinga2-client1:~# icinga2 node wizard 
+Welcome to the Icinga 2 Setup Wizard! 
+  
+We will guide you through all required configuration details. 
+  
+Please specify if this is a satellite/client setup ('n' installs a master setup) [Y/n]:  
+  
+Starting the Client/Satellite setup routine... 
+  
+Please specify the common name (CN) [icinga2-client1.localdomain]:  
+  
+Please specify the parent endpoint(s) (master or satellite) where this node should connect to: 
+Master/Satellite Common Name (CN from your master/satellite node): icinga2-master1.localdomain 
+  
+Do you want to establish a connection to the parent node from this node? [Y/n]:  
+Please specify the master/satellite connection information: 
+Master/Satellite endpoint host (IP address or FQDN): 10.0.0.1 
+Master/Satellite endpoint port [5665]:  
+  
+Add more master/satellite endpoints? [y/N]:  
+Parent certificate information: 
+  
+Subject:     CN = icinga2-master1.localdomain 
+Issuer:      CN = Icinga CA 
+Valid From:  Nov 20 10:32:31 2017 GMT 
+Valid Until: Nov 16 10:32:31 2032 GMT 
+Fingerprint: CA 91 C6 B6 F4 50 9A 16 84 F6 4B BC 93 E5 2B DA 71 32 14 A8  
+  
+Is this information correct? [y/N]: y 
+  
+Please specify the request ticket generated on your Icinga 2 master (optional). 
+(Hint: # icinga2 pki ticket --cn 'icinga2-client1.localdomain'): 880e7edb5e802895ad9aff8adf0db161fcbdd009 
+  
+Please specify the API bind host/port (optional): 
+Bind Host []:  
+Bind Port []:  
+  
+Accept config from parent node? [y/N]: y 
+Accept commands from parent node? [y/N]: y 
+  
+Reconfiguring Icinga... 
+Disabling feature notification. Make sure to restart Icinga 2 for these changes to take effect. 
+Enabling feature api. Make sure to restart Icinga 2 for these changes to take effect. 
+  
+Done. 
+  
+Now restart your Icinga 2 daemon to finish the installation! 
+
+root@icinga2-client1:~# systemctl restart icinga2 
+``` 
+ 
+![clientsetupwizard](https://github.com/vantuanpham95/distributed-icinga2/blob/master/1%20clientsetup.png)
  
 # Cấu hình Distributed 
 
@@ -241,6 +302,7 @@ Chế độ này buộc nút icinga2 thực hiện các lệnh trên một endpo
  * Thực hiện light-weight remote check (các sự kiện không đồng bộ) 
  * Không cần relay log cho các nút con 
  * Ghim check tới các endpoint cụ thể  
+
 **Nhược điểm:** 
 
  * Nếu nút con bị mất hoặc không có kết nối thì sẽ không thực hiện check được 
@@ -397,7 +459,11 @@ object Endpoint "icinga2-master1.localdomain" {
 object Endpoint "icinga2-client2.localdomain" { 
   host = "192.168.56.112" 
 } 
+```
+
 Tiếp theo, ta cần định nghĩa 2 zone. Zone master là cha của zone icinga2-client2.localdomain 
+
+```
 [root@icinga2-client2.localdomain /]# vim /etc/icinga2/zones.conf 
   
 object Zone "master" { 
@@ -487,7 +553,13 @@ Bây giờ chúng ta sẽ đi thực hiện một kịch bản cụ thể để 
  * icinga2-master1.localdomain is the primary master node. 
  * icinga2-client1.localdomain and icinga2-client2.localdomain are two child nodes as clients. 
 
-Edit file zones.conf trên master 
+Cài đặt icinga2 node wizard lên các máy: 
+
+ * icinga2-master1.localdomain là master 
+ * icinga2-client1.localdomain và icinga2-client2.localdomain là các client/satellites 
+ 
+Sau khi các node thông nhau, Edit file zones.conf trên master 
+
 ```
 [root@icinga2-master1.localdomain /]# vim /etc/icinga2/zones.conf 
   
@@ -623,6 +695,9 @@ apply Service "disk" {
 Xác nhận thiết lập cấu hình và khởi động lại dịch vụ icinga2 trên master node icinga2-master1.localdomain 
 Mở icingaweb2 và kiểm tra 2 client hosts với 2 dịch vụ mới được tạo: một dịch vụ thực thi locally (ping 4) và một dịch vụ sử dụng command endpoint (disk) 
  
+ ![topdown](https://github.com/vantuanpham95/distributed-icinga2/blob/master/2%20topdown%20command%20endpoint.png)
+ 
+ 
 #### c. High-Availability Master with Clients 
  
 ![](https://www.icinga.com/docs/icinga2/latest/doc/images/distributed-monitoring/icinga2_distributed_scenarios_ha_master_clients.png) 
@@ -641,11 +716,15 @@ Trong kịch bản này:
 
 Bây giờ đã có 2 nodes có chung zone, ta cần phải xem xét các tính năng high availability 
 
-check và notifications được cân bằng giữa 2 master nodes, điều này đòi hỏi check plugins và các scripts notifications tồn tại trên cả 2 máy 
+ * check và notifications được cân bằng giữa 2 master nodes, điều này đòi hỏi check plugins và các scripts notifications tồn tại trên cả 2 máy 
+ * Mặc định, IDO features sẽ chỉ được kích hoạt trên một node. Cho đến khi tất cả các events được replicate giữa cả 2 node thì sẽ dễ dàng hơn nếu chỉ có 1 database trung tâm duy nhất. 
 
-Mặc định, IDO features sẽ chỉ được kích hoạt trên một node. Cho đến khi tất cả các events được replicate giữa cả 2 node thì sẽ dễ dàng hơn nếu chỉ có 1 database trung tâm duy nhất. 
+Sử dụng icinga2 node wizard để cấu hình node cho cả 4 node 
 
-Ví dụ cấu hình zones.conf trên icinga2-master1.localdomain 
+ * node master1 config như là master 
+ * các node còn lại như là client/satellite 
+
+Ví dụ cấu hình zones.conf trên icinga2-master1.localdomain khi tất cả các node đã thông nhau 
 ```
 [root@icinga2-master1.localdomain /]# vim /etc/icinga2/zones.conf 
   
@@ -790,3 +869,4 @@ apply Service "disk" {
 ```
 Xác nhận cấu hình và khởi động lại icinga2 trên icinga2-master1.localdomain 
  
+File sync có thể tìm thấy trên master2 y hệt như master1 trong thư mục /var/lib/icinga2/api/_etc/... 
